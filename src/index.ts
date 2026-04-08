@@ -21,6 +21,7 @@ export { SessionManager, type SessionManagerDeps } from './session-manager.js';
 export type {
   ConnectionStatus,
   DisconnectOptions,
+  OnSocketReadyArgs,
   SessionPublicState,
   WhatsAppClientOptions,
 } from './types.js';

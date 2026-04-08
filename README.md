@@ -73,6 +73,8 @@ client.shutdownAll();
 | `authProvider` | sim | Implementação de `AuthStateProvider`. |
 | `onMessage` | não | Callback por mensagem recebida (payload mínimo). |
 | `onMedia` | não | Se definido, o SDK baixa o buffer e chama após `onMessage`. |
+| `skipBuiltinMessagePipeline` | não | Se `true`, não registra `messages.upsert` interno; use com `onSocketReady`. |
+| `onSocketReady` | não | Chamado após criar o socket: `{ socket, sessionId, logger }` — ex.: anexar ingestão com `WAMessage` bruto (CRM). |
 | `maxSessions` | não | Padrão `50`. |
 | `logLevel` | não | Padrão `info` (Pino). |
 | `logger` | não | Instância Pino customizada. |

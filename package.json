@@ -1,6 +1,6 @@
 {
   "name": "@yaguar/whatsapp-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightweight WhatsApp Web (Baileys) SDK — no HTTP server or database bundled.",
   "type": "module",
   "main": "./dist/index.js",

@@ -19,6 +19,8 @@ export class WhatsAppClient {
       eventBus: this.eventBus,
       onMessage: options.onMessage,
       onMedia: options.onMedia,
+      skipBuiltinMessagePipeline: options.skipBuiltinMessagePipeline,
+      onSocketReady: options.onSocketReady,
       maxSessions: options.maxSessions ?? 50,
       logger,
     });

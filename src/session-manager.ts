@@ -203,6 +203,12 @@ export type SessionManagerDeps = {
   eventBus: SessionEventBus;
   onMessage?: MessageHandler;
   onMedia?: MediaHandler;
+  skipBuiltinMessagePipeline?: boolean;
+  onSocketReady?: (args: {
+    socket: WASocket;
+    sessionId: string;
+    logger: Logger;
+  }) => void | Promise<void>;
   maxSessions: number;
   logger: Logger;
 };
@@ -411,14 +417,23 @@ export class SessionManager {
 
     sock.ev.on('creds.update', saveCreds);
 
-    attachMessagePipeline(
-      sock,
-      sid,
-      logger,
-      this.deps.eventBus,
-      this.deps.onMessage,
-      this.deps.onMedia,
-    );
+    if (this.deps.skipBuiltinMessagePipeline) {
+      const hook = this.deps.onSocketReady;
+      if (hook) {
+        void Promise.resolve(hook({ socket: sock, sessionId: sid, logger })).catch((err) => {
+          logger.error({ err }, 'onSocketReady falhou');
+        });
+      }
+    } else {
+      attachMessagePipeline(
+        sock,
+        sid,
+        logger,
+        this.deps.eventBus,
+        this.deps.onMessage,
+        this.deps.onMedia,
+      );
+    }
 
     sock.ev.on('connection.update', (update) => {
       const { connection, lastDisconnect, qr } = update;
