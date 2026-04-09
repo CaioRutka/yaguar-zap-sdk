@@ -6,6 +6,7 @@ export { WhatsAppClient } from './client.js';
 export { SessionEventBus, type SessionEvent } from './event-bus.js';
 export {
   InvalidJidError,
+  OutgoingValidationError,
   SendIncompleteError,
   SessionLimitError,
   SessionNotConnectedError,
@@ -25,3 +26,22 @@ export type {
   SessionPublicState,
   WhatsAppClientOptions,
 } from './types.js';
+export {
+  DEFAULT_OUTGOING_LIMITS,
+  mergeOutgoingLimits,
+  validateOutgoingMessage,
+} from './outgoing/index.js';
+export type {
+  OutgoingAudioPayload,
+  OutgoingDocumentPayload,
+  OutgoingImagePayload,
+  OutgoingIssue,
+  OutgoingLimits,
+  OutgoingMessagePayload,
+  OutgoingTextPayload,
+  OutgoingVideoPayload,
+  TrySendOutgoingFailure,
+  TrySendOutgoingResult,
+  TrySendOutgoingSuccess,
+  ValidateOutgoingResult,
+} from './outgoing/index.js';

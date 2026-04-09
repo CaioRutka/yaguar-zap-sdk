@@ -1,4 +1,5 @@
 import type { ConnectionStatus } from './types.js';
+import type { OutgoingIssue } from './outgoing/types.js';
 
 /** Base para erros do SDK (sem status HTTP). */
 export class WhatsAppSDKError extends Error {
@@ -37,6 +38,14 @@ export class SendIncompleteError extends WhatsAppSDKError {
   constructor() {
     super('Envio não retornou identificador da mensagem', 'WA_SEND_INCOMPLETE');
     this.name = 'SendIncompleteError';
+  }
+}
+
+/** Payload inválido para `sendOutgoing` (use `validateOutgoingMessage` para inspecionar sem throw). */
+export class OutgoingValidationError extends WhatsAppSDKError {
+  constructor(public readonly issues: OutgoingIssue[]) {
+    super('Payload de envio inválido', 'INVALID_OUTGOING', { issues });
+    this.name = 'OutgoingValidationError';
   }
 }
 

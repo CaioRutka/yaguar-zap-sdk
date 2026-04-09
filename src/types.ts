@@ -1,5 +1,6 @@
 import type { WASocket } from '@whiskeysockets/baileys';
 import type { Logger } from 'pino';
+import type { OutgoingLimits } from './outgoing/limits.js';
 import type { AuthStateProvider } from './providers/auth-state.provider.js';
 import type { MediaHandler } from './providers/media-handler.provider.js';
 import type { MessageHandler } from './providers/message-handler.provider.js';
@@ -51,4 +52,9 @@ export type WhatsAppClientOptions = {
   logLevel?: string;
   /** Logger customizado (ex.: child do Pino da app). */
   logger?: Logger;
+  /**
+   * Limites para `sendOutgoing` / `trySendOutgoing` / `validateOutgoingMessage`
+   * quando usados via este client (merge com defaults).
+   */
+  outgoingLimits?: Partial<OutgoingLimits>;
 };

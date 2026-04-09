@@ -3,6 +3,15 @@
 Biblioteca leve para **WhatsApp Web** via [Baileys](https://github.com/WhiskeySockets/Baileys) (`@whiskeysockets/baileys`).  
 Não inclui servidor HTTP, ORM, MongoDB, dotenv nem storage — o host (ex.: CRM Yaguar) define persistência e configuração.
 
+## Documentação
+
+| Documento | Conteúdo |
+|-----------|----------|
+| [docs/overview.md](./docs/overview.md) | Escopo do pacote, fluxo de sessão, o que não está incluído. |
+| [docs/messaging.md](./docs/messaging.md) | API unificada `sendOutgoing` / `trySendOutgoing`, `kind`, limites. |
+| [docs/errors.md](./docs/errors.md) | Códigos de erro e sugestão de mapeamento HTTP. |
+| [docs/integration.md](./docs/integration.md) | Como encaixar no backend/CRM. |
+
 ## Requisitos
 
 - Node.js **>= 20**
@@ -14,7 +23,7 @@ Não inclui servidor HTTP, ORM, MongoDB, dotenv nem storage — o host (ex.: CRM
 npm install @yaguar/whatsapp-sdk
 ```
 
-Dependências de runtime (instaladas automaticamente): `@whiskeysockets/baileys`, `pino`, `async-mutex`.
+Dependências de runtime: `@whiskeysockets/baileys`, `pino`, `async-mutex`.
 
 ## Uso rápido
 
@@ -27,11 +36,11 @@ const client = new WhatsAppClient({
   authProvider: auth,
   maxSessions: 50,
   logLevel: 'info',
+  outgoingLimits: { maxMediaBytes: 32 * 1024 * 1024 }, // opcional
   onMessage: async (msg) => {
     console.log('mensagem', msg.sessionId, msg.text);
   },
   onMedia: async (media) => {
-    // opcional: upload, salvar em disco, etc.
     console.log('mídia', media.waMessageId, media.mimetype, media.buffer.length);
   },
 });
@@ -43,8 +52,28 @@ const unsub = client.on('minha-sessao', (ev) => {
 
 await client.connect('minha-sessao');
 
+// API unificada (payload com `kind`)
+await client.sendOutgoing('minha-sessao', {
+  kind: 'text',
+  to: '5541999999999',
+  body: 'Olá!',
+});
+
+// Sem exceções: validação + erros do SDK como resultado
+const out = await client.trySendOutgoing('minha-sessao', {
+  kind: 'text',
+  to: '5541999999999',
+  body: 'Olá',
+  typingSimulation: true,
+});
+if (!out.ok) {
+  if ('issues' in out) console.error(out.issues);
+  else console.error(out.error);
+}
+
+// API legada (ainda suportada)
 await client.sendText('minha-sessao', '5541999999999', 'Olá!');
-await client.sendTextWithTyping('minha-sessao', '5541999999999', 'Texto longo com simulação de digitação…');
+await client.sendTextWithTyping('minha-sessao', '5541999999999', 'Texto longo…');
 
 unsub();
 await client.disconnect('minha-sessao', { logout: false, clearAuth: false });
@@ -53,31 +82,53 @@ client.shutdownAll();
 
 `MemoryAuthStateProvider` **não persiste** entre reinícios — útil para testes. Em produção, implemente `AuthStateProvider` (Mongo, Redis, disco, etc.).
 
+## Duas formas de envio
+
+| Estilo | Quando usar |
+|--------|-------------|
+| **Unificado** — `sendOutgoing` / `trySendOutgoing` + objeto `{ kind, ... }` | Contrato único, validação prévia, menos parâmetros espalhados. |
+| **Legado** — `sendText`, `sendImage`, … | Integrações existentes ou controle fino direto de `Buffer` e flags. |
+
+Validação **sem lançar**:
+
+```typescript
+import { validateOutgoingMessage, DEFAULT_OUTGOING_LIMITS } from '@yaguar/whatsapp-sdk';
+
+const v = validateOutgoingMessage(payload, DEFAULT_OUTGOING_LIMITS);
+if (!v.ok) {
+  return res.status(422).json({ issues: v.issues });
+}
+```
+
+Detalhes dos `kind` e limites: [docs/messaging.md](./docs/messaging.md).
+
 ## API principal — `WhatsAppClient`
 
 | Método | Descrição |
 |--------|-----------|
 | `connect(sessionId)` | Inicia (ou retoma) socket Baileys; retorna `SessionPublicState`. |
-| `on(sessionId, handler)` | Inscreve em eventos (`qr`, `connection`, `message`); retorna função `unsub`. |
-| `getState(sessionId)` / `listStates()` | Estado atual das sessões em memória. |
-| `sendText` / `sendTextWithTyping` / `sendImage` / `sendAudio` / `sendVideo` / `sendDocument` | Envio; JID numérico é normalizado para `@s.whatsapp.net`. |
-| `disconnect(sessionId, opts?)` | `logout?: boolean` (logout remoto), `clearAuth?: boolean` (limpa provider). |
-| `shutdownAll()` | Encerra todos os sockets (shutdown do processo). |
-| `getEventBus()` | `SessionEventBus` para integrar com SSE/WebSocket. |
+| `on(sessionId, handler)` | Inscreve em eventos (`qr`, `connection`, `message`); retorna `unsub`. |
+| `getState` / `listStates` | Estado atual das sessões em memória. |
+| `sendOutgoing(sessionId, payload)` | Valida payload unificado e envia; lança `OutgoingValidationError` se inválido. |
+| `trySendOutgoing(sessionId, payload)` | Igual, mas retorna `{ ok, waMessageId }` ou `{ ok: false, issues }` / `{ error }`. |
+| `sendText` / `sendTextWithTyping` / `sendImage` / `sendAudio` / `sendVideo` / `sendDocument` | Envio legado; JID numérico é normalizado para `@s.whatsapp.net`. |
+| `disconnect(sessionId, opts?)` | `logout?: boolean`, `clearAuth?: boolean`. |
+| `shutdownAll()` | Encerra todos os sockets. |
+| `getEventBus()` | `SessionEventBus` para SSE/WebSocket. |
 | `getSessionManager()` | Acesso avançado ao `SessionManager`. |
 
 ## Opções — `WhatsAppClientOptions`
 
 | Campo | Obrigatório | Descrição |
 |-------|-------------|-----------|
-| `authProvider` | sim | Implementação de `AuthStateProvider`. |
-| `onMessage` | não | Callback por mensagem recebida (payload mínimo). |
-| `onMedia` | não | Se definido, o SDK baixa o buffer e chama após `onMessage`. |
-| `skipBuiltinMessagePipeline` | não | Se `true`, não registra `messages.upsert` interno; use com `onSocketReady`. |
-| `onSocketReady` | não | Chamado após criar o socket: `{ socket, sessionId, logger }` — ex.: anexar ingestão com `WAMessage` bruto (CRM). |
+| `authProvider` | sim | `AuthStateProvider`. |
+| `onMessage` | não | Callback por mensagem recebida. |
+| `onMedia` | não | Se definido, baixa buffer e chama após `onMessage`. |
+| `skipBuiltinMessagePipeline` | não | Com `onSocketReady` para pipeline próprio. |
+| `onSocketReady` | não | Hook com `socket` bruto (ingestão CRM). |
 | `maxSessions` | não | Padrão `50`. |
-| `logLevel` | não | Padrão `info` (Pino). |
-| `logger` | não | Instância Pino customizada. |
+| `logLevel` / `logger` | não | Pino. |
+| `outgoingLimits` | não | Parcial sobre `DEFAULT_OUTGOING_LIMITS` para `sendOutgoing` / `trySendOutgoing`. |
 
 ## Eventos — `SessionEvent`
 
@@ -90,21 +141,9 @@ client.shutdownAll();
 
 ### `AuthStateProvider`
 
-Responsável por carregar e salvar o estado de autenticação Baileys (equivalente a `useMultiFileAuthState`).
-
-```typescript
-import type { AuthenticationState } from '@whiskeysockets/baileys';
-import type { AuthStateProvider } from '@yaguar/whatsapp-sdk';
-
-// loadState(sessionId) → { state: AuthenticationState; saveCreds: () => Promise<void> }
-// clearState(sessionId) → Promise<void>
-```
-
-No backend Yaguar atual, a lógica em `useMongoAuthState` pode ser encapsulada numa classe que implementa essa interface.
+Persistência do estado Baileys (`loadState` / `clearState`). Ver [docs/integration.md](./docs/integration.md).
 
 ### `MessageHandler` / `MediaHandler`
-
-Tipos exportados:
 
 - `IncomingMessage` — id, JIDs, texto/resumo, flags de mídia, `upsertType`, etc.
 - `MediaDownload` — `buffer`, `mimetype`, `fileName`, ids.
@@ -114,26 +153,29 @@ Tipos exportados:
 | Classe | `code` |
 |--------|--------|
 | `WhatsAppSDKError` | (base) |
+| `InvalidJidError` | `INVALID_JID` |
 | `SessionNotConnectedError` | `WA_NOT_CONNECTED` |
 | `SessionLimitError` | `MAX_SESSIONS` |
-| `InvalidJidError` | `INVALID_JID` |
 | `SendIncompleteError` | `WA_SEND_INCOMPLETE` |
+| `OutgoingValidationError` | `INVALID_OUTGOING` |
 
-Use `isWhatsAppSDKError(err)` para narrowing. **Não** há status HTTP — mapeie no Express/Fastify/etc.
+`isWhatsAppSDKError(err)` — o pacote não define status HTTP; mapeie no host. Ver [docs/errors.md](./docs/errors.md).
 
-## Utilitários
+## Exportações úteis
 
-- `normalizeWhatsAppJid(raw: string): string` — dígitos → `@s.whatsapp.net`.
+- `validateOutgoingMessage`, `mergeOutgoingLimits`, `DEFAULT_OUTGOING_LIMITS`
+- Tipos: `OutgoingMessagePayload`, `OutgoingIssue`, `TrySendOutgoingResult`, `OutgoingLimits`, …
 
 ## Nota: Baileys vs Meta Cloud API
 
 Este SDK usa o **protocolo WhatsApp Web** (Baileys), não a **WhatsApp Cloud API** oficial da Meta (Graph). Para Cloud API seria outro pacote e outro contrato.
 
-## Build local
+## Desenvolvimento
 
 ```bash
 npm install
 npm run build
+npm test
 ```
 
 Saída em `dist/` (ESM + `.d.ts`).

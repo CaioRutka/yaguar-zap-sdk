@@ -1,6 +1,6 @@
 {
   "name": "@yaguar/whatsapp-sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Lightweight WhatsApp Web (Baileys) SDK — no HTTP server or database bundled.",
   "type": "module",
   "main": "./dist/index.js",
@@ -14,10 +14,12 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "docs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "test": "node --import tsx --test tests/**/*.test.ts",
     "prepublishOnly": "npm run build",
     "prepare": "npm run build"
   },
@@ -39,6 +41,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
 }

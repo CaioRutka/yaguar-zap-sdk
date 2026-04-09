@@ -1,6 +1,10 @@
 import pino, { type Logger } from 'pino';
 import { SessionEventBus, type SessionEvent } from './event-bus.js';
+import { OutgoingValidationError, isWhatsAppSDKError } from './errors.js';
 import { normalizeWhatsAppJid } from './jid.js';
+import { mergeOutgoingLimits, validateOutgoingMessage } from './outgoing/index.js';
+import type { OutgoingMessagePayload, TrySendOutgoingResult } from './outgoing/types.js';
+import type { OutgoingLimits } from './outgoing/limits.js';
 import { SessionManager } from './session-manager.js';
 import type { DisconnectOptions, SessionPublicState, WhatsAppClientOptions } from './types.js';
 
@@ -10,9 +14,11 @@ import type { DisconnectOptions, SessionPublicState, WhatsAppClientOptions } fro
 export class WhatsAppClient {
   private readonly eventBus: SessionEventBus;
   private readonly sessions: SessionManager;
+  private readonly outgoingLimitsPartial: Partial<OutgoingLimits> | undefined;
 
   constructor(options: WhatsAppClientOptions) {
     const logger: Logger = options.logger ?? pino({ level: options.logLevel ?? 'info' });
+    this.outgoingLimitsPartial = options.outgoingLimits;
     this.eventBus = new SessionEventBus();
     this.sessions = new SessionManager({
       authProvider: options.authProvider,
@@ -24,6 +30,91 @@ export class WhatsAppClient {
       maxSessions: options.maxSessions ?? 50,
       logger,
     });
+  }
+
+  private resolvedOutgoingLimits(): OutgoingLimits {
+    return mergeOutgoingLimits(this.outgoingLimitsPartial);
+  }
+
+  /**
+   * Envia mensagem a partir de um payload discriminado (`kind`).
+   * Valida com os limites do client (`outgoingLimits` nas opções) e lança `OutgoingValidationError` se inválido.
+   */
+  async sendOutgoing(sessionId: string, payload: unknown): Promise<{ waMessageId: string }> {
+    const limits = this.resolvedOutgoingLimits();
+    const validated = validateOutgoingMessage(payload, limits);
+    if (!validated.ok) {
+      throw new OutgoingValidationError(validated.issues);
+    }
+    const remoteJid = normalizeWhatsAppJid(validated.value.to);
+    return this.dispatchOutgoingPayload(sessionId, validated.value, remoteJid);
+  }
+
+  /**
+   * Como `sendOutgoing`, mas não lança em validação nem em erros conhecidos do SDK (`WhatsAppSDKError`).
+   * Outros erros são retornados em `error`.
+   */
+  async trySendOutgoing(sessionId: string, payload: unknown): Promise<TrySendOutgoingResult> {
+    const limits = this.resolvedOutgoingLimits();
+    const validated = validateOutgoingMessage(payload, limits);
+    if (!validated.ok) {
+      return { ok: false, issues: validated.issues };
+    }
+    try {
+      const remoteJid = normalizeWhatsAppJid(validated.value.to);
+      const { waMessageId } = await this.dispatchOutgoingPayload(
+        sessionId,
+        validated.value,
+        remoteJid,
+      );
+      return { ok: true, waMessageId };
+    } catch (err) {
+      if (isWhatsAppSDKError(err)) {
+        return { ok: false, error: err };
+      }
+      if (err instanceof Error) {
+        return { ok: false, error: err };
+      }
+      return { ok: false, error: new Error(String(err)) };
+    }
+  }
+
+  private async dispatchOutgoingPayload(
+    sessionId: string,
+    value: OutgoingMessagePayload,
+    remoteJid: string,
+  ): Promise<{ waMessageId: string }> {
+    switch (value.kind) {
+      case 'text':
+        if (value.typingSimulation) {
+          return this.sessions.sendTextWithTypingSimulation(sessionId, remoteJid, value.body);
+        }
+        return this.sessions.sendText(sessionId, remoteJid, value.body);
+      case 'image':
+        return this.sessions.sendImage(
+          sessionId,
+          remoteJid,
+          value.data,
+          value.caption,
+          value.mimetype,
+        );
+      case 'audio':
+        return this.sessions.sendAudio(sessionId, remoteJid, value.data, value.voiceNote ?? false);
+      case 'video':
+        return this.sessions.sendVideo(sessionId, remoteJid, value.data, value.caption);
+      case 'document':
+        return this.sessions.sendDocument(
+          sessionId,
+          remoteJid,
+          value.data,
+          value.filename,
+          value.mimetype,
+        );
+      default: {
+        const _exhaustive: never = value;
+        return _exhaustive;
+      }
+    }
   }
 
   connect(sessionId: string): Promise<SessionPublicState> {
